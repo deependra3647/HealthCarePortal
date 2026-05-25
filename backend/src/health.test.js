@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
-const app = require('./server');
+const app = require('./app');
 
 describe('Health endpoint', () => {
   it('returns ok status', async () => {
