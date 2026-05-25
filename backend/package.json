@@ -4,12 +4,13 @@
   "description": "HealthCare Portal API",
   "main": "src/server.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test src/health.test.js"
+    "test": "npm run test:run --if-present",
+    "test:run": "node --test src/health.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
