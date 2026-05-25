@@ -90,38 +90,89 @@ This project uses **Jenkins only** (no GitHub Actions). The pipeline is defined 
 
 ### AWS EC2 prerequisites (Ubuntu)
 
-On your EC2 instance, install:
+Run these on your EC2 instance **in order**. Docker is already installed on your server; you still need **Node.js 22** and **Jenkins**.
 
 ```bash
-# Node.js 22 (via NodeSource)
+# 1) Update packages
+sudo apt update
+
+# 2) Install Node.js 22
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
+node -v   # must show v22.x
+npm -v
 
-# Docker
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin
-sudo usermod -aG docker jenkins   # allow Jenkins to run Docker
-sudo systemctl restart jenkins
-```
+# 3) Install Jenkins (APT — use .asc key file, NOT gpg --dearmor)
+sudo apt install -y openjdk-17-jre-headless
+sudo rm -f /etc/apt/sources.list.d/jenkins.list /etc/apt/keyrings/jenkins.gpg
+curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key | \
+  sudo tee /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian binary/" | \
+  sudo tee /etc/apt/sources.list.d/jenkins.list > /dev/null
+sudo apt update
+sudo apt install -y jenkins
 
-Verify:
+# If APT still fails (NO_PUBKEY), use Jenkins in Docker instead — see
+# "Install Jenkins with Docker (fallback)" section below.
 
-```bash
-node -v    # v22.x
+# 4) Allow Jenkins to use Docker (only AFTER Jenkins is installed)
+sudo usermod -aG docker jenkins
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
+sudo systemctl status jenkins
+
+# 5) Verify tools
+node -v
 docker -v
 docker compose version
 ```
 
+**If you see `jenkins does not exist`** — Jenkins is not installed yet; complete step 3 first.
+
+**If you see `jenkins.service not found`** — same fix: install Jenkins (step 3).
+
+Open Jenkins UI: `http://<EC2-PUBLIC-IP>:8080`
+
+Initial admin password:
+
+```bash
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+```
+
+**EC2 security group:** allow inbound **8080** (Jenkins) and **80** (web app after deploy).
+
+### Install Jenkins with WAR file (best fallback if APT fails)
+
+Use this if you see `NO_PUBKEY` — avoids apt/GPG completely. Uses host Node.js and Docker (ideal for this project).
+
+```bash
+df -h /   # need ~500MB+ free
+sudo apt install -y openjdk-17-jre-headless
+mkdir -p ~/jenkins && cd ~/jenkins
+curl -fsSL -o jenkins.war https://get.jenkins.io/war-stable/latest/jenkins.war
+nohup java -jar jenkins.war --httpPort=8080 > jenkins.log 2>&1 &
+sleep 30
+cat ~/jenkins/jenkins.log | tail -5
+```
+
+Password (first run):
+
+```bash
+cat ~/.jenkins/secrets/initialAdminPassword 2>/dev/null || \
+  sudo find / -name initialAdminPassword 2>/dev/null | head -1 | xargs sudo cat
+```
+
+Add `ubuntu` to docker group (for pipeline deploy):
+
+```bash
+sudo usermod -aG docker ubuntu
+```
+
+Open `http://<EC2-PUBLIC-IP>:8080` → install **Git** + **Pipeline** plugins → create job from SCM.
+
 ### Jenkins server setup (beginner-friendly)
 
-1. **Install Jenkins** on Ubuntu EC2:
-
-   ```bash
-   sudo apt update
-   sudo apt install -y openjdk-17-jdk jenkins
-   sudo systemctl enable jenkins
-   sudo systemctl start jenkins
-   ```
+1. **Install Jenkins** (APT steps in prerequisites above, or Docker fallback).
 
 2. Open Jenkins: `http://<EC2-PUBLIC-IP>:8080` and complete setup wizard.
 
@@ -130,13 +181,25 @@ docker compose version
    - Pipeline
    - Docker Pipeline (optional)
 
-4. **Create a Pipeline job**
-   - New Item → name: `healthcare-portal` → **Pipeline**
-   - **Pipeline** → Definition: *Pipeline script from SCM*
-   - SCM: Git → Repository URL: your repo URL
-   - Branch: `*/main`
-   - Script Path: `Jenkinsfile`
-   - Save
+4. **Create a Pipeline job** (match these settings)
+
+   | Section | Setting |
+   |---------|---------|
+   | Job name | `healthcare-portal` (or any name) |
+   | Type | **Pipeline** |
+   | Discard old builds | Max builds to keep: **10** |
+   | Do not allow concurrent builds | **Checked** |
+   | Definition | **Pipeline script from SCM** |
+   | SCM | **Git** |
+   | Repository URL | `https://github.com/deependra3647/HealthCarePortal.git` |
+   | Credentials | Add if repo is private (see below) |
+   | Branches to build | `*/main` |
+   | Script Path | `Jenkinsfile` |
+   | Lightweight checkout | Leave default (checked is fine) |
+
+   Optional **GitHub project** URL: `https://github.com/deependra3647/HealthCarePortal/`
+
+   Save → **Build Now**
 
 5. **Build triggers** (optional)
    - Poll SCM: `H/5 * * * *` (every 5 minutes), or
