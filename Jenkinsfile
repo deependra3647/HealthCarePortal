@@ -1,4 +1,5 @@
 pipeline {
+
     agent any
 
     environment {
@@ -16,7 +17,9 @@ pipeline {
 
         stage('Checkout') {
             steps {
+
                 checkout scm
+
                 script {
                     echo "Building branch: ${env.BRANCH_NAME ?: 'unknown'}"
                     echo "Commit: ${env.GIT_COMMIT ?: 'N/A'}"
@@ -26,8 +29,10 @@ pipeline {
 
         stage('Verify Prerequisites') {
             steps {
+
                 bat '''
                     echo === Tool versions ===
+
                     node -v
                     npm -v
                     docker -v
@@ -38,7 +43,9 @@ pipeline {
 
         stage('Install Backend Dependencies') {
             steps {
+
                 dir('backend') {
+
                     bat 'npm ci'
                 }
             }
@@ -46,7 +53,9 @@ pipeline {
 
         stage('Install Frontend Dependencies') {
             steps {
+
                 dir('frontend') {
+
                     bat 'npm ci'
                 }
             }
@@ -54,7 +63,9 @@ pipeline {
 
         stage('Run Backend Tests') {
             steps {
+
                 dir('backend') {
+
                     bat 'npm test'
                 }
             }
@@ -62,7 +73,9 @@ pipeline {
 
         stage('Build Frontend') {
             steps {
+
                 dir('frontend') {
+
                     bat '''
                         npm run build
                         npm test
@@ -73,14 +86,45 @@ pipeline {
 
         stage('Build Docker Images') {
             steps {
+
                 bat 'docker compose build'
+            }
+        }
+
+        stage('Docker Hub Push') {
+            steps {
+
+                echo 'Tagging and pushing Docker images'
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerHubCreds',
+                        usernameVariable: 'dockerHubUser',
+                        passwordVariable: 'dockerHubPass'
+                    )
+                ]) {
+
+                    bat '''
+                        docker login -u %dockerHubUser% -p %dockerHubPass%
+
+                        docker tag healthcare-backend deependra1/healthcare-backend:latest
+
+                        docker tag healthcare-frontend deependra1/healthcare-frontend:latest
+
+                        docker push deependra1/healthcare-backend:latest
+
+                        docker push deependra1/healthcare-frontend:latest
+                    '''
+                }
             }
         }
 
         stage('Validate Docker Compose') {
             steps {
+
                 bat '''
                     docker compose config
+
                     echo docker-compose.yml is valid.
                 '''
             }
@@ -88,10 +132,16 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                bat 'docker compose up -d --build'
+
+                bat '''
+                    docker compose down
+
+                    docker compose up -d --build
+                '''
 
                 bat '''
                     timeout /t 10
+
                     docker compose ps
                 '''
             }
@@ -99,6 +149,7 @@ pipeline {
     }
 
     post {
+
         success {
             echo 'Pipeline completed successfully.'
         }
